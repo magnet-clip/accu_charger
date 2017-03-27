@@ -65,8 +65,59 @@ void stopCharging() {
   TCCR2B = 0;
 }
 
+enum Report {
+  DISCONNECT,       // long blink red
+  SHORT_CURCUIT,    // fast blink red
+  CHARGING_CURRENT, // fast blink yellow
+  CHARGING_VOLTAGE, // long blink yellow
+  CHARGED           // green
+};
+
+Report state = DISCONNECT;
+
+#define FAST_BLINK_MS 100
+#define LONG_BLINK_MS 500
+void reportState() {
+  static unsigned long fast_blink_ms = 0; // long blink last time
+  static unsigned long long_blink_ms = 0; // fast blink last time
+  static Report last_state = state;     
+  static byte red = LOW, yellow = LOW, green = LOW;
+
+  if (last_state != state) {
+    red = LOW; 
+    yellow = LOW;
+    green = LOW;
+  }
+  
+  last_state = state;
+  
+  unsigned long currentMillis = millis();
+  if ((state == DISCONNECT) && (currentMillis - long_blink_ms >= LONG_BLINK_MS)) {
+    long_blink_ms = currentMillis;
+    red = ~red;
+  } else if ((state == SHORT_CURCUIT) && (currentMillis - fast_blink_ms >= FAST_BLINK_MS)) {
+    fast_blink_ms = currentMillis;
+    red = ~red;
+  } else if ((state == CHARGING_CURRENT) && (currentMillis - fast_blink_ms >= FAST_BLINK_MS)) {
+    fast_blink_ms = currentMillis;
+    yellow = ~yellow;
+  } else if ((state == CHARGING_VOLTAGE) && (currentMillis - long_blink_ms >= LONG_BLINK_MS)) {
+    long_blink_ms = currentMillis;
+    yellow = ~yellow;
+  } else if (state == CHARGED) {
+    green = HIGH;
+  }
+  
+  digitalWrite(RED_LED_PIN, red);
+  digitalWrite(YELLOW_LED_PIN, yellow);
+  digitalWrite(GREEN_LED_PIN, green);
+
+};
+
 void loop() {
   static int currentLimit = MAX_CURRENT;   
+
+  reportState();
   
   int voltage = analogRead(VOLTAGE_SENSE_PIN);
   int current = analogRead(CURRENT_SENSE_PIN);
@@ -75,21 +126,22 @@ void loop() {
 
   if (current >= MAX_CURRENT) {
     stopCharging();
-    reportShortCurcuit();
+    state = SHORT_CURCUIT;
   } else if (voltage <= MIN_VOLTAGE) {
     stopCharging();
-    reportBadAccumulator();
+    state = DISCONNECT;
   } else if (voltage <= CURRENT_VOLTAGE_THRESHOLD) {
     chargeWithCurrent(currentLimit);
+    state = CHARGING_CURRENT;
   } else if (voltage <= MAX_VOLTAGE) {
     chargeWithVoltage();
+    state = CHARGING_VOLTAGE;
   } else if (voltage >= MAX_VOLTAGE) {
     stopCharging();
-    reportSuccess();
+    state = CHARGED;
   } 
   
-//   int dutyCycle = analogRead(A0) >> 2;
-//   OCR2B = dutyCycle;
+   int dutyCycle = analogRead(A0) >> 2;
+   OCR2B = dutyCycle;
   
 }
-
